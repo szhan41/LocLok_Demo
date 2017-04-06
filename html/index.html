@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Trace_Demo</title>
+    <meta charset="utf-8">
+
+    <script src="https://d3js.org/d3.v4.min.js"></script>
+    
+	<script src="https://unpkg.com/leaflet@1.0.2/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.0.2/dist/leaflet.css" />
+    
+    <script src='https://api.mapbox.com/mapbox.js/v3.0.1/mapbox.js'></script>
+    <link href='https://api.mapbox.com/mapbox.js/v3.0.1/mapbox.css' rel='stylesheet' />
+
+    <script src='https://api.tiles.mapbox.com/mapbox.js/plugins/turf/v3.0.11/turf.min.js'></script>
+    
+    <script src="js/Leaflet.Marker.SlideTo.js"></script>
+    <script src="js/leaflet-ant-path.js"></script>
+    <script src="js/graham_scan.min.js"></script>
+
+<!--    position:absolute; -->
+    <style>
+        #nav {
+            background-color: #eeeeee;
+            width: 20%;
+            height: 100%;
+            float: left;
+        }
+        /* Always set the map height explicitly to define the size of the div element that contains the map. */
+        #mapBox { width: 80%; height: 100%; float: right; }
+        /* Optional: Makes the sample page fill the window. */
+        html, body { width: 100%; height: 100%; margin: 0; padding: 0; }
+    </style>
+</head>
+
+<body>
+    
+    <div id="nav">
+        <form id="grids" onchange="getVals()">
+            <fieldset>
+            <legend>Grid Numbers:</legend>
+            <input type="radio" name="gridNum" value="25" checked="checked">25X25<br />
+            <input type="radio" name="gridNum" value="50">50X50<br />
+            <input type="radio" name="gridNum" value="100">100X100<br />
+            </fieldset>
+        </form>
+        
+        <fieldset>
+        <legend>User Trace:</legend>
+        <select name="userID" id="uid" onchange="getVals()">
+            <option value="0" selected="selected">Trace #1</option>
+            <option value="10">Trace #2</option>
+            <option value="22">Trace #3</option>
+            <option value="24">Trace #4</option>
+            <option value="39">Trace #5</option>
+            <option value="41">Trace #6</option>
+        </select>
+        </fieldset>
+    </div>
+    
+    <div id="mapBox"></div>
+</body>
+</html>
+
+<script> 
+    var beijing = [39.90, 116.39];
+    L.mapbox.accessToken = 'pk.eyJ1Ijoic3poYW40MSIsImEiOiJjaXd4b2JtanQwMGNlMm9vNmkwN3g3dTNxIn0._gpvN3o-djswNi87eGltXA';
+	var map = L.mapbox.map('mapBox', 'mapbox.streets').setView(beijing, 11);
+    var bikeIcon = L.icon({
+        iconUrl: 'image/marker_bike.png',
+        iconSize: [25, 39],
+        iconAnchor: [12, 39],
+        shadowUrl: null
+    });
+    
+    /* Add Watermark */    
+    L.Control.Watermark = L.Control.extend({
+		onAdd: function(map) {
+			var img = L.DomUtil.create('img');
+			img.src = 'image/emory_logo.png';
+			img.style.width = '200px';
+			return img;
+		},
+		
+		onRemove: function(map) {
+			// Nothing to do here
+		}
+	});
+	L.control.watermark = function(opts) {
+		return new L.Control.Watermark(opts);
+	}  
+	L.control.watermark({ position: 'topright' }).addTo(map);
+    
+
+    
+    var grids = [];
+    
+    var idx = 0;
+    var pList = [];
+    var path;
+    var bmarker;
+    
+    var state_no_vec = [];
+    var z_true = [];
+    var pr_post = [];
+    
+    var polyHull;
+    var hullMarkers = [];
+    var z_true_marker;
+    
+    var num = document.getElementById("grids").elements["gridNum"].value;
+    var uid = document.getElementById("uid").value;
+    loadUsrTrace(num, uid);
+    
+    function resetMap() {
+        grids.forEach(function(g){
+            map.removeLayer(g);
+        });
+        grids = [];
+        
+        idx = 0;
+        pList = [];
+        map.removeLayer(path);
+        map.removeLayer(bmarker);
+        
+        state_no_vec = [];
+        z_true = [];
+        pr_post = [];
+        
+        
+        if (polyHull!==undefined) {
+            map.removeLayer(polyHull);
+            hullMarkers.forEach(function(mk){
+                map.removeLayer(mk);
+            });
+        }
+
+        if (z_true_marker!==undefined) {
+            map.removeLayer(z_true_marker);
+        }
+    }
+    
+    function loadUsrTrace(num, uid) {
+        d3.queue()
+          .defer(d3.csv, "csv/" + num + "/Grids.csv")
+          .defer(d3.csv, "csv/" + num + "/POIs_" + uid + ".csv")
+          .defer(d3.csv, "csv/" + num + "/matlab_" + uid + ".csv")
+          .await(analyze);
+
+        function analyze(error, grds, pois, mtlb) {
+            if(error) { console.log(error); }
+
+            grds.forEach(function(g){
+                var bounds = [[+g.lat_min, +g.lng_min], [+g.lat_max, +g.lng_max]];
+                var grid = L.rectangle(bounds, {
+                    weight: 1,
+                    color: "grey",
+                    opacity: 0.5,
+                    fillColor: "green",
+                    fillOpacity: 0.1
+                }).bindTooltip(""+g.grid_id).addTo(map);
+                grids.push(grid);
+            });
+
+
+            pois.forEach(function(p){
+                var pos = L.latLng(+p.lat, +p.lng);
+                pList.push(pos);
+            }); 
+
+            path = L.polyline.antPath(pList, {
+                color: "yellow",
+                pulseColor: 'black',
+                delay: 1000,
+                weight: 5,
+                dashArray: [2, 32]
+            }).addTo(map);
+
+            bmarker = L.marker(pList[idx], {
+                icon: bikeIcon
+            }).addTo(map);
+
+
+            map.on('click', tick);
+
+
+            mtlb.forEach(function(m){
+                var state_list = [];
+                m.state_no_vec.split(" ").forEach(function(s){
+                    state_list.push(getGridLatLng(s));     
+                });
+                state_no_vec.push(state_list);
+                z_true.push(getGridLatLng(m.z_true));
+
+                var pr_list = [];
+                m.pr_post.split(" ").forEach(function(p){
+                    pr_list.push(p);     
+                });
+                pr_post.push(pr_list);
+            });
+
+            function getGridLatLng(grid_id) {
+                for (var i=0; i<grds.length; i++) {
+                    if (grds[i].grid_id === grid_id) {
+                        return L.latLng(+grds[i].lat, +grds[i].lng);
+                    }               
+                }  
+            } // getGridLatLng
+            
+        } // analyze
+    } // loadUsrTrace
+    
+    function tick() {
+        console.log("gridNum="+num+" idx="+idx);
+        if (polyHull!==undefined) {
+            map.removeLayer(polyHull);
+            hullMarkers.forEach(function(mk){
+                map.removeLayer(mk);
+            });
+        }
+
+        if (z_true_marker!==undefined) {
+            map.removeLayer(z_true_marker);
+        }
+
+        if (idx >= pList.length) {
+            idx = 0;
+            bmarker.setLatLng(pList[idx]);
+        } else {
+            bmarker.slideTo(pList[idx], {
+                duration: 1000,
+                keepAtCenter: true
+            });
+
+            z_true_marker = new L.circleMarker(z_true[idx], {
+                color: 'black',
+                weight: 1,
+                fillColor: 'red',
+                fillOpacity: 0.5
+            }).setRadius(5).addTo(map);
+
+            var convexHull = new ConvexHullGrahamScan();
+            state_no_vec[idx].forEach(function (s) {
+                convexHull.addPoint(s.lng, s.lat); 
+            });
+
+            if (convexHull.points.length > 0) {
+                var hullPoints = convexHull.getHull();
+
+                //Convert to latlng objects
+                hullPoints = hullPoints.map(function (p) {
+                    return L.latLng(p.y, p.x);
+                });
+
+                polyHull = L.polygon(hullPoints, {
+                    width: 1,
+                    color: 'grey',
+                    fillColor: 'blue',
+                    fillOpacity: 0.1
+                }).addTo(map);
+            }
+
+            for (var i=0; i<state_no_vec[idx].length; i++) {
+                var s = state_no_vec[idx][i];
+                var marker = new L.circleMarker(s, {
+                    color: 'black',
+                    weight: 1,
+                    fillColor: 'orange',
+                    fillOpacity: 0.5
+                }).setRadius(5).bindTooltip("Pr_Post : " + pr_post[idx][i]).addTo(map);
+                hullMarkers.push(marker);
+            }
+            idx++;
+        } // else
+    } // tick
+    
+    
+    function getVals() {
+        resetMap();
+        num = document.getElementById("grids").elements["gridNum"].value;     
+        uid = document.getElementById("uid").value;
+        loadUsrTrace(num, uid);
+    }
+    
+    function randomColor() {
+        var letters = '0123456789ABCDEF';
+        var color = '#';
+        for (var i = 0; i < 6; i++ ) {
+            color += letters[Math.floor(Math.random() * 16)];
+        }
+        return color;
+    }
+</script>
