@@ -45,16 +45,29 @@
             </fieldset>
         </form>
         
+        <form name="userID" id="uid" onchange="getVals()">
+            <fieldset>
+            <legend>User Trace:</legend>
+            <table border="0">
+                <tr>
+                    <td><input type="radio" name="trace" value="003" checked="checked">#003</td>
+                    <td><input type="radio" name="trace" value="007">#007</td>
+                    <td><input type="radio" name="trace" value="016">#016</td>
+                    <td><input type="radio" name="trace" value="056">#056</td>
+                </tr>
+                <tr>
+                    <td><input type="radio" name="trace" value="068">#068</td>
+                    <td><input type="radio" name="trace" value="078">#078</td>
+                    <td><input type="radio" name="trace" value="106">#106</td>
+                    <td><input type="radio" name="trace" value="163">#163</td>
+                </tr>
+            </table>
+            </fieldset>
+        </form>  
+    
         <fieldset>
-        <legend>User Trace:</legend>
-        <select name="userID" id="uid" onchange="getVals()">
-            <option value="0" selected="selected">Trace #1</option>
-            <option value="10">Trace #2</option>
-            <option value="22">Trace #3</option>
-            <option value="24">Trace #4</option>
-            <option value="39">Trace #5</option>
-            <option value="41">Trace #6</option>
-        </select>
+        <legend>Next Location:</legend>
+        <button type="button" onclick="tick()">Next</button>
         </fieldset>
     </div>
     
@@ -109,7 +122,7 @@
     var z_true_marker;
     
     var num = document.getElementById("grids").elements["gridNum"].value;
-    var uid = document.getElementById("uid").value;
+    var uid = document.getElementById("uid").elements["trace"].value;
     loadUsrTrace(num, uid);
     
     function resetMap() {
@@ -143,8 +156,8 @@
     function loadUsrTrace(num, uid) {
         d3.queue()
           .defer(d3.csv, "csv/" + num + "/Grids.csv")
-          .defer(d3.csv, "csv/" + num + "/POIs_" + uid + ".csv")
-          .defer(d3.csv, "csv/" + num + "/matlab_" + uid + ".csv")
+          .defer(d3.csv, "csv/" + num + "/POIs/POIs_" + uid + ".csv")
+          .defer(d3.csv, "csv/" + num + "/Matlab/Matlab_" + uid + ".csv")
           .await(analyze);
 
         function analyze(error, grds, pois, mtlb) {
@@ -176,12 +189,12 @@
                 dashArray: [2, 32]
             }).addTo(map);
 
-            bmarker = L.marker(pList[idx], {
+            bmarker = L.marker(pList[idx++], {
                 icon: bikeIcon
             }).addTo(map);
 
 
-            map.on('click', tick);
+//            map.on('click', tick);
 
 
             mtlb.forEach(function(m){
@@ -225,19 +238,12 @@
 
         if (idx >= pList.length) {
             idx = 0;
-            bmarker.setLatLng(pList[idx]);
+            bmarker.setLatLng(pList[idx++]);
         } else {
             bmarker.slideTo(pList[idx], {
                 duration: 1000,
                 keepAtCenter: true
             });
-
-            z_true_marker = new L.circleMarker(z_true[idx], {
-                color: 'black',
-                weight: 1,
-                fillColor: 'red',
-                fillOpacity: 0.5
-            }).setRadius(5).addTo(map);
 
             var convexHull = new ConvexHullGrahamScan();
             state_no_vec[idx].forEach(function (s) {
@@ -265,11 +271,18 @@
                 var marker = new L.circleMarker(s, {
                     color: 'black',
                     weight: 1,
-                    fillColor: 'orange',
+                    fillColor: 'grey',
                     fillOpacity: 0.5
                 }).setRadius(5).bindTooltip("Pr_Post : " + pr_post[idx][i]).addTo(map);
                 hullMarkers.push(marker);
             }
+            
+            z_true_marker = new L.circleMarker(z_true[idx], {
+                color: 'black',
+                weight: 1,
+                fillColor: 'red',
+                fillOpacity: 0.5
+            }).setRadius(5).addTo(map);
             idx++;
         } // else
     } // tick
@@ -278,8 +291,14 @@
     function getVals() {
         resetMap();
         num = document.getElementById("grids").elements["gridNum"].value;     
-        uid = document.getElementById("uid").value;
+        uid = document.getElementById("uid").elements["trace"].value;
         loadUsrTrace(num, uid);
+    }
+    
+    function pad(num) {
+        var s = num + "";
+        while (s.length < 3) s = "0" + s;
+        return s;
     }
     
     function randomColor() {
